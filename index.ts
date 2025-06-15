@@ -3,18 +3,24 @@ import { Client } from 'discord.js';
 import express from 'express';
 import cors from 'cors';
 import { botConfig, apiConfig, discord, api } from './config/bot-config.js';
+import { validateOAuthEnvironment } from './config/oauth-config.js';
 import { RoleHandler } from './handlers/role-handler.js';
+import { RoleService } from './services/role-service.js';
 import { createWebhookRouter } from './api/webhook.js';
+import { createOAuthRouter } from './routes/oauth-routes.js';
+import { setupOAuthMiddleware } from './middleware/oauth-middleware.js';
 import { DiscordUtils } from './utils/discord-utils.js';
 
 class DiscordRoleBot {
   private client: Client;
   private roleHandler: RoleHandler;
+  private roleService: RoleService;
   private app: express.Application;
 
   constructor() {
     this.client = new Client(botConfig);
     this.roleHandler = new RoleHandler(this.client);
+    this.roleService = new RoleService(this.roleHandler);
     this.app = express();
     this.setupExpress();
     this.setupDiscordEvents();
@@ -35,6 +41,12 @@ class DiscordRoleBot {
     // Trust proxy for rate limiting
     this.app.set('trust proxy', 1);
 
+    // Setup OAuth middleware (sessions, passport)
+    setupOAuthMiddleware(this.app);
+
+    // OAuth routes
+    this.app.use('/auth', createOAuthRouter(this.roleService));
+
     // API routes
     this.app.use('/api', createWebhookRouter(this.roleHandler));
 
@@ -42,12 +54,19 @@ class DiscordRoleBot {
     this.app.get('/', (req, res) => {
       res.json({
         success: true,
-        message: 'Discord Role Assignment Bot API',
+        message: 'Discord OAuth Role Assignment API',
         version: '1.0.0',
         status: 'online',
         bot: {
           connected: this.client.isReady(),
           username: this.client.user?.username || 'Not connected'
+        },
+        endpoints: {
+          'GET /auth/discord?return_url={url}': 'Initiate Discord OAuth flow',
+          'GET /auth/discord/callback': 'OAuth callback (internal)',
+          'POST /api/assign-role': 'Direct role assignment (webhook)',
+          'GET /api/health': 'Health check',
+          'GET /': 'This endpoint'
         }
       });
     });
@@ -144,6 +163,14 @@ class DiscordRoleBot {
       process.exit(1);
     }
 
+    // Validate OAuth environment if OAuth variables are present
+    try {
+      validateOAuthEnvironment();
+    } catch (error) {
+      console.warn('⚠️ OAuth environment not configured - OAuth endpoints will not work');
+      console.warn('   Add OAuth environment variables to enable OAuth functionality');
+    }
+
     // Validate Discord IDs are valid snowflakes
     if (!DiscordUtils.isValidSnowflake(discord.guildId!)) {
       console.error('❌ Invalid DISCORD_GUILD_ID format');
@@ -161,13 +188,23 @@ class DiscordRoleBot {
   private printUsageInstructions(): void {
     console.log('\n📖 Usage Instructions:');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('\n🔗 OAuth Endpoints:');
+    console.log(`   GET  http://localhost:${api.port}/auth/discord?return_url={url} - Start OAuth flow`);
+    console.log(`   GET  http://localhost:${api.port}/auth/discord/callback       - OAuth callback`);
+    
     console.log('\n🔗 API Endpoints:');
     console.log(`   GET  http://localhost:${api.port}/              - Bot status`);
     console.log(`   GET  http://localhost:${api.port}/api/health     - Health check`);
     console.log(`   GET  http://localhost:${api.port}/api/info       - API info`);
     console.log(`   POST http://localhost:${api.port}/api/assign-role - Assign role`);
     
-    console.log('\n📋 Example Request:');
+    console.log('\n🌐 OAuth Flow Example:');
+    console.log('   1. Redirect user to:');
+    console.log(`      http://localhost:${api.port}/auth/discord?return_url=https://yoursite.com/callback`);
+    console.log('   2. User completes Discord OAuth');
+    console.log('   3. API redirects back to: yoursite.com/callback?status=success&username=...');
+    
+    console.log('\n📋 Webhook Example:');
     console.log('   curl -X POST http://localhost:' + api.port + '/api/assign-role \\');
     console.log('     -H "Content-Type: application/json" \\');
     console.log('     -H "X-API-Key: YOUR_API_KEY" \\');

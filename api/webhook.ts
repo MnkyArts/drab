@@ -9,10 +9,11 @@ export function createWebhookRouter(roleHandler: RoleHandler) {
 
   // Apply middleware
   router.use(rateLimitMiddleware);
-  router.use(authenticateAPI);
+  router.use(authenticateAPI as express.RequestHandler);
 
   // Role assignment endpoint
-  router.post('/assign-role', async (req: AuthenticatedRequest, res: Response) => {
+  router.post('/assign-role', async (req: express.Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     try {
       const { discordHandle } = req.body;
 

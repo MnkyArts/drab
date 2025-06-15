@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { api } from '../config/bot-config.js';
 
 export interface AuthenticatedRequest extends Request {
-  isAuthenticated?: boolean;
+  apiAuthenticated?: boolean;
 }
 
 export const authenticateAPI = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -27,7 +27,7 @@ export const authenticateAPI = (req: AuthenticatedRequest, res: Response, next: 
       });
     }
 
-    req.isAuthenticated = true;
+    req.apiAuthenticated = true;
     next();
   } catch (error) {
     console.error('Authentication error:', error);
